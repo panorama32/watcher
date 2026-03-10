@@ -32,12 +32,27 @@ func main() {
 
 	if len(mentions) == 0 {
 		fmt.Println("no mentions found")
-		return
+	} else {
+		fmt.Printf("📬 Mentions (%d)\n\n", len(mentions))
+		for _, m := range mentions {
+			fmt.Printf("  #%s | %s: %s\n", m.Channel.Name, m.Username, m.Text)
+			fmt.Println()
+		}
 	}
 
-	fmt.Printf("📬 Mentions (%d)\n\n", len(mentions))
-	for _, m := range mentions {
-		fmt.Printf("  #%s | %s: %s\n", m.Channel.Name, m.Username, m.Text)
-		fmt.Println()
+	threads, err := client.FetchThreadReplies()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "fetch threads failed: %v\n", err)
+		os.Exit(1)
+	}
+
+	if len(threads) == 0 {
+		fmt.Println("no thread replies found")
+	} else {
+		fmt.Printf("🧵 Threads (%d)\n\n", len(threads))
+		for _, m := range threads {
+			fmt.Printf("  #%s | %s: %s\n", m.Channel.Name, m.Username, m.Text)
+			fmt.Println()
+		}
 	}
 }
