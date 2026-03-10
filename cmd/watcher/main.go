@@ -22,5 +22,22 @@ func main() {
 		os.Exit(1)
 	}
 
-	fmt.Printf("authenticated as: %s\n", user)
+	fmt.Printf("authenticated as: %s\n\n", user)
+
+	mentions, err := client.FetchMentions()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "fetch mentions failed: %v\n", err)
+		os.Exit(1)
+	}
+
+	if len(mentions) == 0 {
+		fmt.Println("no mentions found")
+		return
+	}
+
+	fmt.Printf("📬 Mentions (%d)\n\n", len(mentions))
+	for _, m := range mentions {
+		fmt.Printf("  #%s | %s: %s\n", m.Channel.Name, m.Username, m.Text)
+		fmt.Println()
+	}
 }
