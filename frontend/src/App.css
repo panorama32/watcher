@@ -1,0 +1,37 @@
+.App {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 2rem;
+  font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+h1 {
+  margin-bottom: 0.5rem;
+}
+
+.conversations {
+  margin-top: 1rem;
+}
+
+.message {
+  padding: 0.75rem;
+  border-bottom: 1px solid #eee;
+  display: flex;
+  gap: 0.75rem;
+  align-items: baseline;
+}
+
+.channel {
+  color: #666;
+  font-size: 0.85rem;
+  min-width: 120px;
+}
+
+.user {
+  font-weight: bold;
+  min-width: 100px;
+}
+
+.text {
+  flex: 1;
+}
