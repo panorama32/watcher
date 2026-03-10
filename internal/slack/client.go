@@ -33,9 +33,9 @@ func (c *Client) FetchMentions() ([]slack.SearchMessage, error) {
 
 	query := fmt.Sprintf("<@%s>", c.userID)
 	params := slack.SearchParameters{
-		Sort:  "timestamp",
+		Sort:          "timestamp",
 		SortDirection: "desc",
-		Count: 20,
+		Count:         20,
 	}
 
 	msgs, err := c.api.SearchMessages(query, params)
