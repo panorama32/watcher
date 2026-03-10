@@ -4,9 +4,12 @@ import (
 	"fmt"
 	"os"
 
+	"path/filepath"
+
 	"github.com/panorama32/watcher/internal/aggregator"
 	"github.com/panorama32/watcher/internal/config"
 	slackclient "github.com/panorama32/watcher/internal/slack"
+	"github.com/panorama32/watcher/internal/store"
 )
 
 func main() {
@@ -24,6 +27,19 @@ func main() {
 	}
 
 	fmt.Printf("authenticated as: %s\n\n", user)
+
+	dir, err := config.Dir()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "config dir error: %v\n", err)
+		os.Exit(1)
+	}
+
+	db, err := store.New(filepath.Join(dir, "watcher.db"))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "store error: %v\n", err)
+		os.Exit(1)
+	}
+	defer db.Close()
 
 	mentions, err := client.FetchMentions()
 	if err != nil {
@@ -48,6 +64,14 @@ func main() {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "fetch conversations failed: %v\n", err)
 		os.Exit(1)
+	}
+
+	for _, conv := range convs {
+		for _, m := range conv.Messages {
+			if err := db.SaveMessage(conv.ChannelID, conv.ChannelName, m.Timestamp, m.User, m.Text); err != nil {
+				fmt.Fprintf(os.Stderr, "save error: %v\n", err)
+			}
+		}
 	}
 
 	fmt.Printf("📋 Conversations (%d)\n\n", len(convs))

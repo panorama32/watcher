@@ -30,7 +30,7 @@ func Load() (*Config, error) {
 	return &cfg, nil
 }
 
-func configPath() (string, error) {
+func Dir() (string, error) {
 	configDir := os.Getenv("XDG_CONFIG_HOME")
 	if configDir == "" {
 		home, err := os.UserHomeDir()
@@ -39,5 +39,13 @@ func configPath() (string, error) {
 		}
 		configDir = filepath.Join(home, ".config")
 	}
-	return filepath.Join(configDir, "watcher", "config.toml"), nil
+	return filepath.Join(configDir, "watcher"), nil
+}
+
+func configPath() (string, error) {
+	dir, err := Dir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "config.toml"), nil
 }
