@@ -4,82 +4,20 @@ import (
 	"fmt"
 	"os"
 
-	"path/filepath"
-
-	"github.com/panorama32/watcher/internal/aggregator"
-	"github.com/panorama32/watcher/internal/config"
-	slackclient "github.com/panorama32/watcher/internal/slack"
-	"github.com/panorama32/watcher/internal/store"
+	"github.com/spf13/cobra"
 )
 
 func main() {
-	cfg, err := config.Load()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "config error: %v\n", err)
+	root := &cobra.Command{
+		Use:   "watcher",
+		Short: "Stop context-switching. Your Slack conversations, triaged and waiting.",
+	}
+
+	root.AddCommand(fetchCmd())
+	root.AddCommand(startCmd())
+
+	if err := root.Execute(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
-	}
-
-	client := slackclient.NewClient(cfg.SlackUserToken)
-	user, err := client.AuthTest()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "auth test failed: %v\n", err)
-		os.Exit(1)
-	}
-
-	fmt.Printf("authenticated as: %s\n\n", user)
-
-	dir, err := config.Dir()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "config dir error: %v\n", err)
-		os.Exit(1)
-	}
-
-	db, err := store.New(filepath.Join(dir, "watcher.db"))
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "store error: %v\n", err)
-		os.Exit(1)
-	}
-	defer db.Close()
-
-	mentions, err := client.FetchMentions()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "fetch mentions failed: %v\n", err)
-		os.Exit(1)
-	}
-
-	threads, err := client.FetchThreadReplies()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "fetch threads failed: %v\n", err)
-		os.Exit(1)
-	}
-
-	messages := aggregator.Aggregate(mentions, threads)
-
-	if len(messages) == 0 {
-		fmt.Println("no messages found")
-		return
-	}
-
-	convs, err := client.FetchConversations(messages)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "fetch conversations failed: %v\n", err)
-		os.Exit(1)
-	}
-
-	for _, conv := range convs {
-		for _, m := range conv.Messages {
-			if err := db.SaveMessage(conv.ChannelID, conv.ChannelName, m.Timestamp, m.User, m.Text); err != nil {
-				fmt.Fprintf(os.Stderr, "save error: %v\n", err)
-			}
-		}
-	}
-
-	fmt.Printf("📋 Conversations (%d)\n\n", len(convs))
-	for _, conv := range convs {
-		fmt.Printf("  #%s (%d messages)\n", conv.ChannelName, len(conv.Messages))
-		for _, m := range conv.Messages {
-			fmt.Printf("    %s: %s\n", m.User, m.Text)
-		}
-		fmt.Println()
 	}
 }

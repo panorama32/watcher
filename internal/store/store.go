@@ -36,6 +36,32 @@ func (s *Store) SaveMessage(channelID, channelName, ts, user, text string) error
 	return err
 }
 
+type Message struct {
+	ChannelID   string `json:"channel_id"`
+	ChannelName string `json:"channel_name"`
+	Ts          string `json:"ts"`
+	User        string `json:"user"`
+	Text        string `json:"text"`
+}
+
+func (s *Store) GetConversations() ([]Message, error) {
+	rows, err := s.db.Query(`SELECT channel_id, channel_name, ts, user, text FROM conversations ORDER BY ts DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var msgs []Message
+	for rows.Next() {
+		var m Message
+		if err := rows.Scan(&m.ChannelID, &m.ChannelName, &m.Ts, &m.User, &m.Text); err != nil {
+			return nil, err
+		}
+		msgs = append(msgs, m)
+	}
+	return msgs, rows.Err()
+}
+
 func migrate(db *sql.DB) error {
 	_, err := db.Exec(`
 		CREATE TABLE IF NOT EXISTS conversations (
