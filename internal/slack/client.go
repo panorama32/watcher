@@ -65,3 +65,39 @@ func (c *Client) FetchThreadReplies() ([]slack.SearchMessage, error) {
 
 	return msgs.Matches, nil
 }
+
+type Conversation struct {
+	ChannelID   string
+	ChannelName string
+	Messages    []slack.Message
+}
+
+func (c *Client) FetchConversations(searchMessages []slack.SearchMessage) ([]Conversation, error) {
+	var convs []Conversation
+
+	for _, sm := range searchMessages {
+		msgs, _, _, err := c.api.GetConversationReplies(&slack.GetConversationRepliesParameters{
+			ChannelID: sm.Channel.ID,
+			Timestamp: sm.Timestamp,
+		})
+		if err != nil {
+			// スレッドではない単体メッセージの場合
+			convs = append(convs, Conversation{
+				ChannelID:   sm.Channel.ID,
+				ChannelName: sm.Channel.Name,
+				Messages: []slack.Message{{
+					Msg: slack.Msg{Text: sm.Text, Timestamp: sm.Timestamp, User: sm.User},
+				}},
+			})
+			continue
+		}
+
+		convs = append(convs, Conversation{
+			ChannelID:   sm.Channel.ID,
+			ChannelName: sm.Channel.Name,
+			Messages:    msgs,
+		})
+	}
+
+	return convs, nil
+}

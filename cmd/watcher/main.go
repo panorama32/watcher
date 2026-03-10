@@ -41,11 +41,21 @@ func main() {
 
 	if len(messages) == 0 {
 		fmt.Println("no messages found")
-	} else {
-		fmt.Printf("📋 Messages (%d)\n\n", len(messages))
-		for _, m := range messages {
-			fmt.Printf("  #%s | %s: %s\n", m.Channel.Name, m.Username, m.Text)
-			fmt.Println()
+		return
+	}
+
+	convs, err := client.FetchConversations(messages)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "fetch conversations failed: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("📋 Conversations (%d)\n\n", len(convs))
+	for _, conv := range convs {
+		fmt.Printf("  #%s (%d messages)\n", conv.ChannelName, len(conv.Messages))
+		for _, m := range conv.Messages {
+			fmt.Printf("    %s: %s\n", m.User, m.Text)
 		}
+		fmt.Println()
 	}
 }
