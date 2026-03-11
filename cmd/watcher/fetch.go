@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/panorama32/watcher/internal/aggregator"
 	"github.com/panorama32/watcher/internal/config"
@@ -41,11 +42,30 @@ func fetchCmd() *cobra.Command {
 			}
 			defer db.Close()
 
+			expired, _ := db.IsUsersCacheExpired(72 * time.Hour)
+			if expired {
+				fmt.Println("fetching users...")
+				slackUsers, err := client.FetchUsers()
+				if err != nil {
+					return fmt.Errorf("fetch users failed: %w", err)
+				}
+				storeUsers := make([]store.User, len(slackUsers))
+				for i, u := range slackUsers {
+					storeUsers[i] = store.User{ID: u.ID, Name: u.Name}
+				}
+				if err := db.ReplaceUsers(storeUsers); err != nil {
+					return fmt.Errorf("save users failed: %w", err)
+				}
+				fmt.Printf("cached %d users\n\n", len(storeUsers))
+			}
+
+			fmt.Println("fetching mentions...")
 			mentions, err := client.FetchMentions()
 			if err != nil {
 				return fmt.Errorf("fetch mentions failed: %w", err)
 			}
 
+			fmt.Println("fetching threads...")
 			threads, err := client.FetchThreadReplies()
 			if err != nil {
 				return fmt.Errorf("fetch threads failed: %w", err)
@@ -58,11 +78,13 @@ func fetchCmd() *cobra.Command {
 				return nil
 			}
 
+			fmt.Println("fetching conversations...")
 			convs, err := client.FetchConversations(messages)
 			if err != nil {
 				return fmt.Errorf("fetch conversations failed: %w", err)
 			}
 
+			fmt.Println("saving to db...")
 			for _, conv := range convs {
 				for _, m := range conv.Messages {
 					if err := db.SaveMessage(conv.ChannelID, conv.ChannelName, m.Timestamp, m.User, m.Text); err != nil {

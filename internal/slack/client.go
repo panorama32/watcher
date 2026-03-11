@@ -101,3 +101,30 @@ func (c *Client) FetchConversations(searchMessages []slack.SearchMessage) ([]Con
 
 	return convs, nil
 }
+
+type User struct {
+	ID   string
+	Name string
+}
+
+func (c *Client) FetchUsers() ([]User, error) {
+	var users []User
+
+	slackUsers, err := c.api.GetUsers()
+	if err != nil {
+		return nil, err
+	}
+
+	for _, u := range slackUsers {
+		if u.Deleted || u.IsBot {
+			continue
+		}
+		name := u.Profile.DisplayName
+		if name == "" {
+			name = u.RealName
+		}
+		users = append(users, User{ID: u.ID, Name: name})
+	}
+
+	return users, nil
+}

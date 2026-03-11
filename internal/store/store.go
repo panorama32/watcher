@@ -2,6 +2,7 @@ package store
 
 import (
 	"database/sql"
+	"time"
 
 	_ "modernc.org/sqlite"
 )
@@ -62,6 +63,77 @@ func (s *Store) GetConversations() ([]Message, error) {
 	return msgs, rows.Err()
 }
 
+type User struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+func (s *Store) IsUsersCacheExpired(ttl time.Duration) (bool, error) {
+	var fetchedAt string
+	err := s.db.QueryRow(`SELECT fetched_at FROM users LIMIT 1`).Scan(&fetchedAt)
+	if err == sql.ErrNoRows {
+		return true, nil
+	}
+	if err != nil {
+		return true, nil
+	}
+
+	t, err := time.Parse(time.RFC3339, fetchedAt)
+	if err != nil {
+		return true, nil
+	}
+
+	return time.Since(t) > ttl, nil
+}
+
+func (s *Store) ReplaceUsers(users []User) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(`DELETE FROM users`); err != nil {
+		return err
+	}
+
+	now := time.Now().UTC().Format(time.RFC3339)
+	for _, u := range users {
+		if _, err := tx.Exec(`INSERT INTO users (id, name, fetched_at) VALUES (?, ?, ?)`, u.ID, u.Name, now); err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit()
+}
+
+func (s *Store) GetUserName(id string) (string, error) {
+	var name string
+	err := s.db.QueryRow(`SELECT name FROM users WHERE id = ?`, id).Scan(&name)
+	if err != nil {
+		return id, err
+	}
+	return name, nil
+}
+
+func (s *Store) LoadUserMap() (map[string]string, error) {
+	rows, err := s.db.Query(`SELECT id, name FROM users`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	m := make(map[string]string)
+	for rows.Next() {
+		var id, name string
+		if err := rows.Scan(&id, &name); err != nil {
+			return nil, err
+		}
+		m[id] = name
+	}
+	return m, rows.Err()
+}
+
 func migrate(db *sql.DB) error {
 	_, err := db.Exec(`
 		CREATE TABLE IF NOT EXISTS conversations (
@@ -71,7 +143,12 @@ func migrate(db *sql.DB) error {
 			user         TEXT NOT NULL,
 			text         TEXT NOT NULL,
 			PRIMARY KEY (channel_id, ts)
-		)
+		);
+		CREATE TABLE IF NOT EXISTS users (
+			id         TEXT PRIMARY KEY,
+			name       TEXT NOT NULL,
+			fetched_at TEXT NOT NULL
+		);
 	`)
 	return err
 }

@@ -9,6 +9,25 @@ type Message = {
   text: string;
 };
 
+function SlackText({ text }: { text: string }) {
+  const parts = text.split(/(<[^>]+>)/g);
+  return (
+    <>
+      {parts.map((part, i) => {
+        const linkMatch = part.match(/^<(https?:\/\/[^|>]+)\|([^>]+)>$/);
+        if (linkMatch) {
+          return <a key={i} href={linkMatch[1]} target="_blank" rel="noopener noreferrer">{linkMatch[2]}</a>;
+        }
+        const urlMatch = part.match(/^<(https?:\/\/[^>]+)>$/);
+        if (urlMatch) {
+          return <a key={i} href={urlMatch[1]} target="_blank" rel="noopener noreferrer">{urlMatch[1]}</a>;
+        }
+        return <span key={i}>{part}</span>;
+      })}
+    </>
+  );
+}
+
 function App() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -31,9 +50,9 @@ function App() {
       <div className="conversations">
         {messages.map((m) => (
           <div key={`${m.channel_id}-${m.ts}`} className="message">
-            <span className="channel">#{m.channel_name}</span>
-            <span className="user">{m.user}</span>
-            <span className="text">{m.text}</span>
+            <div className="channel">#{m.channel_name}</div>
+            <div className="user">{m.user}</div>
+            <div className="text"><SlackText text={m.text} /></div>
           </div>
         ))}
       </div>
