@@ -4,27 +4,30 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/panorama32/watcher/internal/aggregator"
 	slackclient "github.com/panorama32/watcher/internal/slack"
 	"github.com/panorama32/watcher/internal/store"
+	"github.com/slack-go/slack"
 	"github.com/spf13/cobra"
 )
 
 func fetchMentionsCmd(client *slackclient.Client, db *store.Store) *cobra.Command {
 	var count int
+	var output string
 
 	cmd := &cobra.Command{
 		Use:   "mentions",
 		Short: "Fetch mentions",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			userID, err := client.AuthTest()
-			if err != nil {
+			if _, err := client.AuthTest(); err != nil {
 				return fmt.Errorf("auth test failed: %w", err)
 			}
 
-			mentions, err := client.FetchMentions(userID, count)
+			mentions, err := client.FetchMentions(count)
 			if err != nil {
 				return fmt.Errorf("fetch mentions failed: %w", err)
 			}
@@ -34,16 +37,23 @@ func fetchMentionsCmd(client *slackclient.Client, db *store.Store) *cobra.Comman
 				return fmt.Errorf("json marshal failed: %w", err)
 			}
 
-			if err := os.WriteFile("mentions.json", data, 0644); err != nil {
-				return fmt.Errorf("write file failed: %w", err)
+			switch output {
+			case "json":
+				if err := os.WriteFile("mentions.json", data, 0644); err != nil {
+					return fmt.Errorf("write file failed: %w", err)
+				}
+				fmt.Printf("wrote %d mentions to mentions.json\n", len(mentions))
+			case "pretty":
+				fmt.Println(formatMentions(mentions))
+			default:
+				fmt.Println(string(data))
 			}
-
-			fmt.Printf("wrote %d mentions to mentions.json\n", len(mentions))
 			return nil
 		},
 	}
 
-	cmd.Flags().IntVarP(&count, "count", "c", 20, "number of mentions to fetch")
+	cmd.Flags().IntVarP(&count, "count", "c", 10, "number of mentions to fetch")
+	cmd.Flags().StringVarP(&output, "output", "o", "", "output format (json)")
 
 	return cmd
 }
@@ -78,7 +88,7 @@ func fetchCmd(client *slackclient.Client, db *store.Store) *cobra.Command {
 			}
 
 			fmt.Println("fetching mentions...")
-			mentions, err := client.FetchMentions(client.UserID(), 20)
+			mentions, err := client.FetchMentions(20)
 			if err != nil {
 				return fmt.Errorf("fetch mentions failed: %w", err)
 			}
@@ -127,4 +137,33 @@ func fetchCmd(client *slackclient.Client, db *store.Store) *cobra.Command {
 	cmd.AddCommand(fetchMentionsCmd(client, db))
 
 	return cmd
+}
+
+func formatMentions(mentions []slack.SearchMessage) string {
+	var b strings.Builder
+	for i, m := range mentions {
+		if i > 0 {
+			b.WriteString("\n────────────────────────────────\n\n")
+		}
+		prefix := "#"
+		if m.Channel.IsPrivate {
+			prefix = "🔒"
+		}
+		b.WriteString(fmt.Sprintf("%s%s\n", prefix, m.Channel.Name))
+		b.WriteString(fmt.Sprintf("%s: %s\n", m.Username, m.Text))
+		b.WriteString(formatSlackTS(m.Timestamp))
+	}
+	return b.String()
+}
+
+func formatSlackTS(ts string) string {
+	parts := strings.Split(ts, ".")
+	if len(parts) == 0 {
+		return ts
+	}
+	sec, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil {
+		return ts
+	}
+	return time.Unix(sec, 0).Format("01/02 15:04")
 }

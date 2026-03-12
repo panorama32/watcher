@@ -30,8 +30,8 @@ func (c *Client) AuthTest() (string, error) {
 	return res.User, nil
 }
 
-func (c *Client) FetchMentions(userID string, count int) ([]slack.SearchMessage, error) {
-	if userID == "" {
+func (c *Client) FetchMentions(count int) ([]slack.SearchMessage, error) {
+	if c.userID == "" {
 		return nil, fmt.Errorf("userID is required")
 	}
 	if count < 1 {
@@ -41,7 +41,7 @@ func (c *Client) FetchMentions(userID string, count int) ([]slack.SearchMessage,
 		return nil, fmt.Errorf("count must be 100 or less (got %d); pagination is not supported", count)
 	}
 
-	query := fmt.Sprintf("<@%s>", userID)
+	query := fmt.Sprintf("<@%s>", c.userID)
 	params := slack.SearchParameters{
 		Sort:          "timestamp",
 		SortDirection: "desc",
@@ -65,7 +65,7 @@ func (c *Client) FetchThreadReplies() ([]slack.SearchMessage, error) {
 	params := slack.SearchParameters{
 		Sort:          "timestamp",
 		SortDirection: "desc",
-		Count:         20,
+		Count:         10,
 	}
 
 	msgs, err := c.api.SearchMessages(query, params)
