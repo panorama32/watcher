@@ -99,7 +99,10 @@ func fetchCmd(client *slackclient.Client, db *store.Store) *cobra.Command {
 				return fmt.Errorf("fetch threads failed: %w", err)
 			}
 
-			messages := aggregator.Aggregate(mentions, threads)
+			messages, err := aggregator.Aggregate(mentions, threads)
+			if err != nil {
+				return fmt.Errorf("aggregate failed: %w", err)
+			}
 
 			if len(messages) == 0 {
 				fmt.Println("no messages found")
