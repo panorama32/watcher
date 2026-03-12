@@ -30,38 +30,96 @@ func (s *Store) Close() error {
 	return s.db.Close()
 }
 
-func (s *Store) SaveMessage(channelID, channelName, ts, user, text string) error {
-	_, err := s.db.Exec(`
-		INSERT OR REPLACE INTO conversations (channel_id, channel_name, ts, user, text)
-		VALUES (?, ?, ?, ?, ?)
-	`, channelID, channelName, ts, user, text)
-	return err
+type Thread struct {
+	ChannelID   string    `json:"channel_id"`
+	ChannelName string    `json:"channel_name"`
+	ThreadTS    string    `json:"thread_ts"`
+	Messages    []Message `json:"messages"`
 }
 
 type Message struct {
-	ChannelID   string `json:"channel_id"`
-	ChannelName string `json:"channel_name"`
-	Ts          string `json:"ts"`
-	User        string `json:"user"`
-	Text        string `json:"text"`
+	Ts   string `json:"ts"`
+	User string `json:"user"`
+	Text string `json:"text"`
 }
 
-func (s *Store) GetConversations() ([]Message, error) {
-	rows, err := s.db.Query(`SELECT channel_id, channel_name, ts, user, text FROM conversations ORDER BY ts DESC`)
+func (s *Store) SaveConversation(channelID, channelName, threadTS string, messages []Message) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(`
+		INSERT OR REPLACE INTO threads (channel_id, channel_name, thread_ts)
+		VALUES (?, ?, ?)
+	`, channelID, channelName, threadTS); err != nil {
+		return err
+	}
+
+	stmt, err := tx.Prepare(`
+		INSERT OR REPLACE INTO messages (channel_id, thread_ts, ts, user, text)
+		VALUES (?, ?, ?, ?, ?)
+	`)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+
+	for _, m := range messages {
+		if _, err := stmt.Exec(channelID, threadTS, m.Ts, m.User, m.Text); err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit()
+}
+
+func (s *Store) GetConversations() ([]Thread, error) {
+	rows, err := s.db.Query(`
+		SELECT t.channel_id, t.channel_name, t.thread_ts, m.ts, m.user, m.text
+		FROM threads t
+		JOIN messages m ON t.channel_id = m.channel_id AND t.thread_ts = m.thread_ts
+		JOIN (
+			SELECT channel_id, thread_ts, MAX(ts) AS last_ts
+			FROM messages
+			GROUP BY channel_id, thread_ts
+		) latest ON t.channel_id = latest.channel_id AND t.thread_ts = latest.thread_ts
+		ORDER BY latest.last_ts DESC, m.ts ASC
+	`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	var msgs []Message
+	threadMap := make(map[string]*Thread)
+	var order []string
+
 	for rows.Next() {
-		var m Message
-		if err := rows.Scan(&m.ChannelID, &m.ChannelName, &m.Ts, &m.User, &m.Text); err != nil {
+		var channelID, channelName, threadTS, ts, user, text string
+		if err := rows.Scan(&channelID, &channelName, &threadTS, &ts, &user, &text); err != nil {
 			return nil, err
 		}
-		msgs = append(msgs, m)
+		key := channelID + ":" + threadTS
+		if _, ok := threadMap[key]; !ok {
+			threadMap[key] = &Thread{
+				ChannelID:   channelID,
+				ChannelName: channelName,
+				ThreadTS:    threadTS,
+			}
+			order = append(order, key)
+		}
+		threadMap[key].Messages = append(threadMap[key].Messages, Message{Ts: ts, User: user, Text: text})
 	}
-	return msgs, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	threads := make([]Thread, 0, len(order))
+	for _, key := range order {
+		threads = append(threads, *threadMap[key])
+	}
+	return threads, nil
 }
 
 type User struct {
@@ -146,13 +204,20 @@ func (s *Store) LoadUserMap() (map[string]string, error) {
 
 func migrate(db *sql.DB) error {
 	_, err := db.Exec(`
-		CREATE TABLE IF NOT EXISTS conversations (
+		CREATE TABLE IF NOT EXISTS threads (
 			channel_id   TEXT NOT NULL,
 			channel_name TEXT NOT NULL,
-			ts           TEXT NOT NULL,
-			user         TEXT NOT NULL,
-			text         TEXT NOT NULL,
-			PRIMARY KEY (channel_id, ts)
+			thread_ts    TEXT NOT NULL,
+			PRIMARY KEY (channel_id, thread_ts)
+		);
+		CREATE TABLE IF NOT EXISTS messages (
+			channel_id TEXT NOT NULL,
+			thread_ts  TEXT NOT NULL,
+			ts         TEXT NOT NULL,
+			user       TEXT NOT NULL,
+			text       TEXT NOT NULL,
+			PRIMARY KEY (channel_id, ts),
+			FOREIGN KEY (channel_id, thread_ts) REFERENCES threads(channel_id, thread_ts)
 		);
 		CREATE TABLE IF NOT EXISTS users (
 			id         TEXT PRIMARY KEY,

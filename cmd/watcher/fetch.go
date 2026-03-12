@@ -205,10 +205,16 @@ func fetchCmd(client *slackclient.Client, db *store.Store) *cobra.Command {
 
 			fmt.Println("saving to db...")
 			for _, conv := range convs {
-				for _, m := range conv.Messages {
-					if err := db.SaveMessage(conv.ChannelID, conv.ChannelName, m.Timestamp, m.User, m.Text); err != nil {
-						fmt.Fprintf(os.Stderr, "save error: %v\n", err)
-					}
+				msgs := make([]store.Message, len(conv.Messages))
+				for i, m := range conv.Messages {
+					msgs[i] = store.Message{Ts: m.Timestamp, User: m.User, Text: m.Text}
+				}
+				threadTS := ""
+				if len(conv.Messages) > 0 {
+					threadTS = conv.Messages[0].Timestamp
+				}
+				if err := db.SaveConversation(conv.ChannelID, conv.ChannelName, threadTS, msgs); err != nil {
+					fmt.Fprintf(os.Stderr, "save error: %v\n", err)
 				}
 			}
 

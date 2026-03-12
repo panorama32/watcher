@@ -26,17 +26,19 @@ func startCmd(db *store.Store) *cobra.Command {
 
 			http.HandleFunc("/conversations", func(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set("Access-Control-Allow-Origin", "*")
-				msgs, err := db.GetConversations()
+				threads, err := db.GetConversations()
 				if err != nil {
 					http.Error(w, err.Error(), http.StatusInternalServerError)
 					return
 				}
-				for i, m := range msgs {
-					msgs[i].User = presenter.ResolveUser(m.User, userMap)
-					msgs[i].Text = presenter.ResolveText(m.Text, userMap)
+				for i, t := range threads {
+					for j, m := range t.Messages {
+						threads[i].Messages[j].User = presenter.ResolveUser(m.User, userMap)
+						threads[i].Messages[j].Text = presenter.ResolveText(m.Text, userMap)
+					}
 				}
 				w.Header().Set("Content-Type", "application/json")
-				json.NewEncoder(w).Encode(msgs)
+				json.NewEncoder(w).Encode(threads)
 			})
 
 			addr := fmt.Sprintf(":%d", port)
