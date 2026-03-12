@@ -44,7 +44,7 @@ func fetchMentionsCmd(client *slackclient.Client, db *store.Store) *cobra.Comman
 				}
 				fmt.Printf("wrote %d mentions to mentions.json\n", len(mentions))
 			case "pretty":
-				fmt.Println(formatMentions(mentions))
+				fmt.Println(formatMessages(mentions))
 			default:
 				fmt.Println(string(data))
 			}
@@ -54,6 +54,49 @@ func fetchMentionsCmd(client *slackclient.Client, db *store.Store) *cobra.Comman
 
 	cmd.Flags().IntVarP(&count, "count", "c", 10, "number of mentions to fetch")
 	cmd.Flags().StringVarP(&output, "output", "o", "", "output format (json)")
+
+	return cmd
+}
+
+func fetchThreadsCmd(client *slackclient.Client, db *store.Store) *cobra.Command {
+	var count int
+	var output string
+
+	cmd := &cobra.Command{
+		Use:   "threads",
+		Short: "Fetch thread replies",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if _, err := client.AuthTest(); err != nil {
+				return fmt.Errorf("auth test failed: %w", err)
+			}
+
+			threads, err := client.FetchThreadReplies(count)
+			if err != nil {
+				return fmt.Errorf("fetch threads failed: %w", err)
+			}
+
+			data, err := json.MarshalIndent(threads, "", "  ")
+			if err != nil {
+				return fmt.Errorf("json marshal failed: %w", err)
+			}
+
+			switch output {
+			case "json":
+				if err := os.WriteFile("threads.json", data, 0644); err != nil {
+					return fmt.Errorf("write file failed: %w", err)
+				}
+				fmt.Printf("wrote %d threads to threads.json\n", len(threads))
+			case "pretty":
+				fmt.Println(formatMessages(threads))
+			default:
+				fmt.Println(string(data))
+			}
+			return nil
+		},
+	}
+
+	cmd.Flags().IntVarP(&count, "count", "c", 10, "number of threads to fetch")
+	cmd.Flags().StringVarP(&output, "output", "o", "", "output format (json, pretty)")
 
 	return cmd
 }
@@ -94,7 +137,7 @@ func fetchCmd(client *slackclient.Client, db *store.Store) *cobra.Command {
 			}
 
 			fmt.Println("fetching threads...")
-			threads, err := client.FetchThreadReplies()
+			threads, err := client.FetchThreadReplies(20)
 			if err != nil {
 				return fmt.Errorf("fetch threads failed: %w", err)
 			}
@@ -138,11 +181,12 @@ func fetchCmd(client *slackclient.Client, db *store.Store) *cobra.Command {
 	}
 
 	cmd.AddCommand(fetchMentionsCmd(client, db))
+	cmd.AddCommand(fetchThreadsCmd(client, db))
 
 	return cmd
 }
 
-func formatMentions(mentions []slack.SearchMessage) string {
+func formatMessages(mentions []slack.SearchMessage) string {
 	var b strings.Builder
 	for i, m := range mentions {
 		if i > 0 {

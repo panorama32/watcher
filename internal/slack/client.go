@@ -56,7 +56,7 @@ func (c *Client) FetchMentions(count int) ([]slack.SearchMessage, error) {
 	return msgs.Matches, nil
 }
 
-func (c *Client) FetchThreadReplies() ([]slack.SearchMessage, error) {
+func (c *Client) FetchThreadReplies(count int) ([]slack.SearchMessage, error) {
 	if c.userID == "" {
 		return nil, fmt.Errorf("userID is not set; call AuthTest first")
 	}
@@ -65,7 +65,7 @@ func (c *Client) FetchThreadReplies() ([]slack.SearchMessage, error) {
 	params := slack.SearchParameters{
 		Sort:          "timestamp",
 		SortDirection: "desc",
-		Count:         10,
+		Count:         count,
 	}
 
 	msgs, err := c.api.SearchMessages(query, params)
