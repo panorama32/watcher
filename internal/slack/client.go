@@ -2,6 +2,8 @@ package slack
 
 import (
 	"fmt"
+	"net/url"
+	"strings"
 
 	"github.com/slack-go/slack"
 )
@@ -82,13 +84,75 @@ type Conversation struct {
 	Messages    []slack.Message
 }
 
+func (c *Client) FetchConversation(permalink string) (Conversation, error) {
+	u, err := url.Parse(permalink)
+	if err != nil {
+		return Conversation{}, fmt.Errorf("failed to parse permalink %q: %w", permalink, err)
+	}
+
+	// /archives/{channel_id}/{p<ts>}
+	parts := strings.Split(u.Path, "/")
+	if len(parts) < 4 {
+		return Conversation{}, fmt.Errorf("unexpected permalink format: %q", permalink)
+	}
+	channelID := parts[2]
+
+	ts, err := threadTSFromPermalink(permalink)
+	if err != nil {
+		return Conversation{}, err
+	}
+
+	msgs, _, _, err := c.api.GetConversationReplies(&slack.GetConversationRepliesParameters{
+		ChannelID: channelID,
+		Timestamp: ts,
+	})
+	if err != nil {
+		return Conversation{}, fmt.Errorf("get conversation replies: %w", err)
+	}
+
+	return Conversation{
+		ChannelID: channelID,
+		Messages:  msgs,
+	}, nil
+}
+
+// threadTSFromPermalink extracts the thread root timestamp from a permalink.
+// For replies: uses thread_ts query param.
+// For thread roots: extracts from path /archives/{channel}/{p<ts>} and converts to dot format.
+func threadTSFromPermalink(permalink string) (string, error) {
+	u, err := url.Parse(permalink)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse permalink %q: %w", permalink, err)
+	}
+
+	if threadTS := u.Query().Get("thread_ts"); threadTS != "" {
+		return threadTS, nil
+	}
+
+	// /archives/{channel_id}/{p<sec><micro>} → "<sec>.<micro>"
+	parts := strings.Split(u.Path, "/")
+	if len(parts) >= 4 && len(parts[3]) > 1 && parts[3][0] == 'p' {
+		digits := parts[3][1:]
+		if len(digits) > 6 {
+			return digits[:len(digits)-6] + "." + digits[len(digits)-6:], nil
+		}
+	}
+
+	return "", fmt.Errorf("unexpected permalink format: %q", permalink)
+}
+
 func (c *Client) FetchConversations(searchMessages []slack.SearchMessage) ([]Conversation, error) {
 	var convs []Conversation
 
 	for _, sm := range searchMessages {
+		ts, err := threadTSFromPermalink(sm.Permalink)
+		if err != nil {
+			return nil, fmt.Errorf("failed to extract thread_ts: %w", err)
+		}
+
 		msgs, _, _, err := c.api.GetConversationReplies(&slack.GetConversationRepliesParameters{
 			ChannelID: sm.Channel.ID,
-			Timestamp: sm.Timestamp,
+			Timestamp: ts,
 		})
 		if err != nil {
 			// スレッドではない単体メッセージの場合

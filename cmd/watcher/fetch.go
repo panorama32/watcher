@@ -101,6 +101,51 @@ func fetchThreadsCmd(client *slackclient.Client, db *store.Store) *cobra.Command
 	return cmd
 }
 
+func fetchConversationCmd(client *slackclient.Client, db *store.Store) *cobra.Command {
+	var output string
+
+	cmd := &cobra.Command{
+		Use:   "conversation [permalink]",
+		Short: "Fetch a conversation by permalink",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if _, err := client.AuthTest(); err != nil {
+				return fmt.Errorf("auth test failed: %w", err)
+			}
+
+			conv, err := client.FetchConversation(args[0])
+			if err != nil {
+				return fmt.Errorf("fetch conversation failed: %w", err)
+			}
+
+			switch output {
+			case "json":
+				data, err := json.MarshalIndent(conv, "", "  ")
+				if err != nil {
+					return fmt.Errorf("json marshal failed: %w", err)
+				}
+				if err := os.WriteFile("conversation.json", data, 0644); err != nil {
+					return fmt.Errorf("write file failed: %w", err)
+				}
+				fmt.Printf("wrote conversation to conversation.json\n")
+			case "pretty":
+				fmt.Println(formatConversation(conv))
+			default:
+				data, err := json.MarshalIndent(conv, "", "  ")
+				if err != nil {
+					return fmt.Errorf("json marshal failed: %w", err)
+				}
+				fmt.Println(string(data))
+			}
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVarP(&output, "output", "o", "", "output format (json, pretty)")
+
+	return cmd
+}
+
 func fetchCmd(client *slackclient.Client, db *store.Store) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "fetch",
@@ -182,8 +227,21 @@ func fetchCmd(client *slackclient.Client, db *store.Store) *cobra.Command {
 
 	cmd.AddCommand(fetchMentionsCmd(client, db))
 	cmd.AddCommand(fetchThreadsCmd(client, db))
+	cmd.AddCommand(fetchConversationCmd(client, db))
 
 	return cmd
+}
+
+func formatConversation(conv slackclient.Conversation) string {
+	var b strings.Builder
+	for i, m := range conv.Messages {
+		if i > 0 {
+			b.WriteString("\n")
+		}
+		b.WriteString(fmt.Sprintf("%s: %s\n", m.User, m.Text))
+		b.WriteString(formatSlackTS(m.Timestamp))
+	}
+	return b.String()
 }
 
 func formatMessages(mentions []slack.SearchMessage) string {
