@@ -2,6 +2,7 @@ package store
 
 import (
 	"database/sql"
+	"fmt"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -64,8 +65,9 @@ func (s *Store) GetConversations() ([]Message, error) {
 }
 
 type User struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
+	ID    string `json:"id"`
+	Name  string `json:"name"`
+	IsBot bool   `json:"is_bot"`
 }
 
 func (s *Store) IsUsersCacheExpired(ttl time.Duration) (bool, error) {
@@ -97,12 +99,20 @@ func (s *Store) ReplaceUsers(users []User) error {
 		return err
 	}
 
+	stmt, err := tx.Prepare(`INSERT INTO users (id, name, is_bot, fetched_at) VALUES (?, ?, ?, ?)`)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+
 	now := time.Now().UTC().Format(time.RFC3339)
+	start := time.Now()
 	for _, u := range users {
-		if _, err := tx.Exec(`INSERT INTO users (id, name, fetched_at) VALUES (?, ?, ?)`, u.ID, u.Name, now); err != nil {
+		if _, err := stmt.Exec(u.ID, u.Name, u.IsBot, now); err != nil {
 			return err
 		}
 	}
+	fmt.Printf("inserted %d users in %.1fs\n", len(users), time.Since(start).Seconds())
 
 	return tx.Commit()
 }
@@ -147,6 +157,7 @@ func migrate(db *sql.DB) error {
 		CREATE TABLE IF NOT EXISTS users (
 			id         TEXT PRIMARY KEY,
 			name       TEXT NOT NULL,
+			is_bot     INTEGER NOT NULL DEFAULT 0,
 			fetched_at TEXT NOT NULL
 		);
 	`)

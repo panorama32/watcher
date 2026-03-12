@@ -4,32 +4,19 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"path/filepath"
-	"regexp"
 
-	"github.com/panorama32/watcher/internal/config"
+	"github.com/panorama32/watcher/internal/presenter"
 	"github.com/panorama32/watcher/internal/store"
 	"github.com/spf13/cobra"
 )
 
-func startCmd() *cobra.Command {
+func startCmd(db *store.Store) *cobra.Command {
 	var port int
 
 	cmd := &cobra.Command{
 		Use:   "start",
 		Short: "Start the watcher server",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			dir, err := config.Dir()
-			if err != nil {
-				return fmt.Errorf("config dir error: %w", err)
-			}
-
-			db, err := store.New(filepath.Join(dir, "watcher.db"))
-			if err != nil {
-				return fmt.Errorf("store error: %w", err)
-			}
-			defer db.Close()
-
 			userMap, err := db.LoadUserMap()
 			if err != nil {
 				fmt.Printf("warning: could not load user cache: %v\n", err)
@@ -44,18 +31,9 @@ func startCmd() *cobra.Command {
 					http.Error(w, err.Error(), http.StatusInternalServerError)
 					return
 				}
-				mentionRe := regexp.MustCompile(`<@(U[A-Z0-9]+)>`)
 				for i, m := range msgs {
-					if name, ok := userMap[m.User]; ok {
-						msgs[i].User = name
-					}
-					msgs[i].Text = mentionRe.ReplaceAllStringFunc(m.Text, func(match string) string {
-						id := mentionRe.FindStringSubmatch(match)[1]
-						if name, ok := userMap[id]; ok {
-							return "@" + name
-						}
-						return match
-					})
+					msgs[i].User = presenter.ResolveUser(m.User, userMap)
+					msgs[i].Text = presenter.ResolveText(m.Text, userMap)
 				}
 				w.Header().Set("Content-Type", "application/json")
 				json.NewEncoder(w).Encode(msgs)

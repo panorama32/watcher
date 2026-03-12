@@ -17,6 +17,10 @@ func NewClient(userToken string) *Client {
 	}
 }
 
+func (c *Client) UserID() string {
+	return c.userID
+}
+
 func (c *Client) AuthTest() (string, error) {
 	res, err := c.api.AuthTest()
 	if err != nil {
@@ -26,16 +30,22 @@ func (c *Client) AuthTest() (string, error) {
 	return res.User, nil
 }
 
-func (c *Client) FetchMentions() ([]slack.SearchMessage, error) {
-	if c.userID == "" {
-		return nil, fmt.Errorf("userID is not set; call AuthTest first")
+func (c *Client) FetchMentions(userID string, count int) ([]slack.SearchMessage, error) {
+	if userID == "" {
+		return nil, fmt.Errorf("userID is required")
+	}
+	if count < 1 {
+		return nil, fmt.Errorf("count must be at least 1 (got %d)", count)
+	}
+	if count > 100 {
+		return nil, fmt.Errorf("count must be 100 or less (got %d); pagination is not supported", count)
 	}
 
-	query := fmt.Sprintf("<@%s>", c.userID)
+	query := fmt.Sprintf("<@%s>", userID)
 	params := slack.SearchParameters{
 		Sort:          "timestamp",
 		SortDirection: "desc",
-		Count:         20,
+		Count:         count,
 	}
 
 	msgs, err := c.api.SearchMessages(query, params)
@@ -103,8 +113,9 @@ func (c *Client) FetchConversations(searchMessages []slack.SearchMessage) ([]Con
 }
 
 type User struct {
-	ID   string
-	Name string
+	ID    string
+	Name  string
+	IsBot bool
 }
 
 func (c *Client) FetchUsers() ([]User, error) {
@@ -116,14 +127,14 @@ func (c *Client) FetchUsers() ([]User, error) {
 	}
 
 	for _, u := range slackUsers {
-		if u.Deleted || u.IsBot {
+		if u.Deleted {
 			continue
 		}
 		name := u.Profile.DisplayName
 		if name == "" {
 			name = u.RealName
 		}
-		users = append(users, User{ID: u.ID, Name: name})
+		users = append(users, User{ID: u.ID, Name: name, IsBot: u.IsBot})
 	}
 
 	return users, nil

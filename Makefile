@@ -6,3 +6,6 @@ console:
 reset:
 	rm -f ~/.config/watcher/watcher.db
 	@echo "database removed"
+
+pg:
+	go run ./playground/main.go

@@ -1,46 +1,64 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/panorama32/watcher/internal/aggregator"
-	"github.com/panorama32/watcher/internal/config"
 	slackclient "github.com/panorama32/watcher/internal/slack"
 	"github.com/panorama32/watcher/internal/store"
 	"github.com/spf13/cobra"
 )
 
-func fetchCmd() *cobra.Command {
-	return &cobra.Command{
+func fetchMentionsCmd(client *slackclient.Client, db *store.Store) *cobra.Command {
+	var count int
+
+	cmd := &cobra.Command{
+		Use:   "mentions",
+		Short: "Fetch mentions",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			userID, err := client.AuthTest()
+			if err != nil {
+				return fmt.Errorf("auth test failed: %w", err)
+			}
+
+			mentions, err := client.FetchMentions(userID, count)
+			if err != nil {
+				return fmt.Errorf("fetch mentions failed: %w", err)
+			}
+
+			data, err := json.MarshalIndent(mentions, "", "  ")
+			if err != nil {
+				return fmt.Errorf("json marshal failed: %w", err)
+			}
+
+			if err := os.WriteFile("mentions.json", data, 0644); err != nil {
+				return fmt.Errorf("write file failed: %w", err)
+			}
+
+			fmt.Printf("wrote %d mentions to mentions.json\n", len(mentions))
+			return nil
+		},
+	}
+
+	cmd.Flags().IntVarP(&count, "count", "c", 20, "number of mentions to fetch")
+
+	return cmd
+}
+
+func fetchCmd(client *slackclient.Client, db *store.Store) *cobra.Command {
+	cmd := &cobra.Command{
 		Use:   "fetch",
 		Short: "Fetch and save Slack conversations",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, err := config.Load()
-			if err != nil {
-				return fmt.Errorf("config error: %w", err)
-			}
-
-			client := slackclient.NewClient(cfg.SlackUserToken)
 			user, err := client.AuthTest()
 			if err != nil {
 				return fmt.Errorf("auth test failed: %w", err)
 			}
 
 			fmt.Printf("authenticated as: %s\n\n", user)
-
-			dir, err := config.Dir()
-			if err != nil {
-				return fmt.Errorf("config dir error: %w", err)
-			}
-
-			db, err := store.New(filepath.Join(dir, "watcher.db"))
-			if err != nil {
-				return fmt.Errorf("store error: %w", err)
-			}
-			defer db.Close()
 
 			expired, _ := db.IsUsersCacheExpired(72 * time.Hour)
 			if expired {
@@ -51,7 +69,7 @@ func fetchCmd() *cobra.Command {
 				}
 				storeUsers := make([]store.User, len(slackUsers))
 				for i, u := range slackUsers {
-					storeUsers[i] = store.User{ID: u.ID, Name: u.Name}
+					storeUsers[i] = store.User{ID: u.ID, Name: u.Name, IsBot: u.IsBot}
 				}
 				if err := db.ReplaceUsers(storeUsers); err != nil {
 					return fmt.Errorf("save users failed: %w", err)
@@ -60,7 +78,7 @@ func fetchCmd() *cobra.Command {
 			}
 
 			fmt.Println("fetching mentions...")
-			mentions, err := client.FetchMentions()
+			mentions, err := client.FetchMentions(client.UserID(), 20)
 			if err != nil {
 				return fmt.Errorf("fetch mentions failed: %w", err)
 			}
@@ -105,4 +123,8 @@ func fetchCmd() *cobra.Command {
 			return nil
 		},
 	}
+
+	cmd.AddCommand(fetchMentionsCmd(client, db))
+
+	return cmd
 }
