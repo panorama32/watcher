@@ -41,7 +41,7 @@ func main() {
 	}
 
 	root.AddCommand(fetchCmd(client, db))
-	root.AddCommand(startCmd(db))
+	root.AddCommand(startCmd(client, db, cfg))
 
 	if err := root.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)

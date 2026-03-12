@@ -63,7 +63,7 @@ func (c *Client) FetchThreadReplies(count int) ([]slack.SearchMessage, error) {
 		return nil, fmt.Errorf("userID is not set; call AuthTest first")
 	}
 
-	query := fmt.Sprintf("from:<@%s> is:thread", c.userID)
+	query := fmt.Sprintf("from:<@%s>", c.userID)
 	params := slack.SearchParameters{
 		Sort:          "timestamp",
 		SortDirection: "desc",

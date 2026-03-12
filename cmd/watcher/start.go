@@ -4,25 +4,62 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"time"
 
+	"github.com/panorama32/watcher/internal/config"
 	"github.com/panorama32/watcher/internal/presenter"
+	slackclient "github.com/panorama32/watcher/internal/slack"
 	"github.com/panorama32/watcher/internal/store"
 	"github.com/spf13/cobra"
 )
 
-func startCmd(db *store.Store) *cobra.Command {
+func startCmd(client *slackclient.Client, db *store.Store, cfg *config.Config) *cobra.Command {
 	var port int
 
 	cmd := &cobra.Command{
 		Use:   "start",
 		Short: "Start the watcher server",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if _, err := client.AuthTest(); err != nil {
+				return fmt.Errorf("auth test failed: %w", err)
+			}
+
 			userMap, err := db.LoadUserMap()
 			if err != nil {
 				fmt.Printf("warning: could not load user cache: %v\n", err)
 				userMap = make(map[string]string)
 			}
 			fmt.Printf("loaded %d users from cache\n", len(userMap))
+
+			// initial fetch
+			fmt.Println("running initial fetch...")
+			if err := runFetch(client, db); err != nil {
+				fmt.Printf("initial fetch error: %v\n", err)
+			}
+
+			// periodic fetch
+			interval, err := time.ParseDuration(cfg.FetchInterval)
+			if err != nil || interval <= 0 {
+				interval = 3 * time.Minute
+				fmt.Printf("using default fetch interval: %s\n", interval)
+			} else {
+				fmt.Printf("fetch interval: %s\n", interval)
+			}
+
+			go func() {
+				ticker := time.NewTicker(interval)
+				defer ticker.Stop()
+				for range ticker.C {
+					fmt.Printf("[%s] fetching...\n", time.Now().Format("15:04:05"))
+					if err := runFetch(client, db); err != nil {
+						fmt.Printf("fetch error: %v\n", err)
+					}
+					// refresh user map after fetch
+					if updated, err := db.LoadUserMap(); err == nil {
+						userMap = updated
+					}
+				}
+			}()
 
 			http.HandleFunc("/conversations", func(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set("Access-Control-Allow-Origin", "*")

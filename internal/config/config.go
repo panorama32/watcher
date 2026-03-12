@@ -10,6 +10,7 @@ import (
 
 type Config struct {
 	SlackUserToken string `toml:"slack_user_token"`
+	FetchInterval  string `toml:"fetch_interval"` // e.g. "3m", "30s"
 }
 
 func Load() (*Config, error) {

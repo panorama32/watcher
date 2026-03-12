@@ -146,6 +146,72 @@ func fetchConversationCmd(client *slackclient.Client, db *store.Store) *cobra.Co
 	return cmd
 }
 
+// runFetch executes the core fetch-and-save pipeline.
+func runFetch(client *slackclient.Client, db *store.Store) error {
+	expired, _ := db.IsUsersCacheExpired(72 * time.Hour)
+	if expired {
+		fmt.Println("fetching users...")
+		slackUsers, err := client.FetchUsers()
+		if err != nil {
+			return fmt.Errorf("fetch users failed: %w", err)
+		}
+		storeUsers := make([]store.User, len(slackUsers))
+		for i, u := range slackUsers {
+			storeUsers[i] = store.User{ID: u.ID, Name: u.Name, IsBot: u.IsBot}
+		}
+		if err := db.ReplaceUsers(storeUsers); err != nil {
+			return fmt.Errorf("save users failed: %w", err)
+		}
+		fmt.Printf("cached %d users\n\n", len(storeUsers))
+	}
+
+	fmt.Println("fetching mentions...")
+	mentions, err := client.FetchMentions(20)
+	if err != nil {
+		return fmt.Errorf("fetch mentions failed: %w", err)
+	}
+
+	fmt.Println("fetching threads...")
+	threads, err := client.FetchThreadReplies(20)
+	if err != nil {
+		return fmt.Errorf("fetch threads failed: %w", err)
+	}
+
+	messages, err := aggregator.Aggregate(mentions, threads)
+	if err != nil {
+		return fmt.Errorf("aggregate failed: %w", err)
+	}
+
+	if len(messages) == 0 {
+		fmt.Println("no messages found")
+		return nil
+	}
+
+	fmt.Println("fetching conversations...")
+	convs, err := client.FetchConversations(messages)
+	if err != nil {
+		return fmt.Errorf("fetch conversations failed: %w", err)
+	}
+
+	fmt.Println("saving to db...")
+	for _, conv := range convs {
+		msgs := make([]store.Message, len(conv.Messages))
+		for i, m := range conv.Messages {
+			msgs[i] = store.Message{Ts: m.Timestamp, User: m.User, Text: m.Text}
+		}
+		threadTS := ""
+		if len(conv.Messages) > 0 {
+			threadTS = conv.Messages[0].Timestamp
+		}
+		if err := db.SaveConversation(conv.ChannelID, conv.ChannelName, threadTS, msgs); err != nil {
+			fmt.Fprintf(os.Stderr, "save error: %v\n", err)
+		}
+	}
+
+	fmt.Printf("saved %d conversations\n", len(convs))
+	return nil
+}
+
 func fetchCmd(client *slackclient.Client, db *store.Store) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "fetch",
@@ -155,79 +221,8 @@ func fetchCmd(client *slackclient.Client, db *store.Store) *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("auth test failed: %w", err)
 			}
-
 			fmt.Printf("authenticated as: %s\n\n", user)
-
-			expired, _ := db.IsUsersCacheExpired(72 * time.Hour)
-			if expired {
-				fmt.Println("fetching users...")
-				slackUsers, err := client.FetchUsers()
-				if err != nil {
-					return fmt.Errorf("fetch users failed: %w", err)
-				}
-				storeUsers := make([]store.User, len(slackUsers))
-				for i, u := range slackUsers {
-					storeUsers[i] = store.User{ID: u.ID, Name: u.Name, IsBot: u.IsBot}
-				}
-				if err := db.ReplaceUsers(storeUsers); err != nil {
-					return fmt.Errorf("save users failed: %w", err)
-				}
-				fmt.Printf("cached %d users\n\n", len(storeUsers))
-			}
-
-			fmt.Println("fetching mentions...")
-			mentions, err := client.FetchMentions(20)
-			if err != nil {
-				return fmt.Errorf("fetch mentions failed: %w", err)
-			}
-
-			fmt.Println("fetching threads...")
-			threads, err := client.FetchThreadReplies(20)
-			if err != nil {
-				return fmt.Errorf("fetch threads failed: %w", err)
-			}
-
-			messages, err := aggregator.Aggregate(mentions, threads)
-			if err != nil {
-				return fmt.Errorf("aggregate failed: %w", err)
-			}
-
-			if len(messages) == 0 {
-				fmt.Println("no messages found")
-				return nil
-			}
-
-			fmt.Println("fetching conversations...")
-			convs, err := client.FetchConversations(messages)
-			if err != nil {
-				return fmt.Errorf("fetch conversations failed: %w", err)
-			}
-
-			fmt.Println("saving to db...")
-			for _, conv := range convs {
-				msgs := make([]store.Message, len(conv.Messages))
-				for i, m := range conv.Messages {
-					msgs[i] = store.Message{Ts: m.Timestamp, User: m.User, Text: m.Text}
-				}
-				threadTS := ""
-				if len(conv.Messages) > 0 {
-					threadTS = conv.Messages[0].Timestamp
-				}
-				if err := db.SaveConversation(conv.ChannelID, conv.ChannelName, threadTS, msgs); err != nil {
-					fmt.Fprintf(os.Stderr, "save error: %v\n", err)
-				}
-			}
-
-			fmt.Printf("📋 Conversations (%d)\n\n", len(convs))
-			for _, conv := range convs {
-				fmt.Printf("  #%s (%d messages)\n", conv.ChannelName, len(conv.Messages))
-				for _, m := range conv.Messages {
-					fmt.Printf("    %s: %s\n", m.User, m.Text)
-				}
-				fmt.Println()
-			}
-
-			return nil
+			return runFetch(client, db)
 		},
 	}
 
