@@ -15,7 +15,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func fetchMentionsCmd(client *slackclient.Client, db *store.Store) *cobra.Command {
+func fetchMentionsCmd(a *app) *cobra.Command {
 	var count int
 	var output string
 
@@ -23,11 +23,11 @@ func fetchMentionsCmd(client *slackclient.Client, db *store.Store) *cobra.Comman
 		Use:   "mentions",
 		Short: "Fetch mentions",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if _, err := client.AuthTest(); err != nil {
+			if _, err := a.client.AuthTest(); err != nil {
 				return fmt.Errorf("auth test failed: %w", err)
 			}
 
-			mentions, err := client.FetchMentions(count)
+			mentions, err := a.client.FetchMentions(count)
 			if err != nil {
 				return fmt.Errorf("fetch mentions failed: %w", err)
 			}
@@ -58,7 +58,7 @@ func fetchMentionsCmd(client *slackclient.Client, db *store.Store) *cobra.Comman
 	return cmd
 }
 
-func fetchThreadsCmd(client *slackclient.Client, db *store.Store) *cobra.Command {
+func fetchThreadsCmd(a *app) *cobra.Command {
 	var count int
 	var output string
 
@@ -66,11 +66,11 @@ func fetchThreadsCmd(client *slackclient.Client, db *store.Store) *cobra.Command
 		Use:   "threads",
 		Short: "Fetch thread replies",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if _, err := client.AuthTest(); err != nil {
+			if _, err := a.client.AuthTest(); err != nil {
 				return fmt.Errorf("auth test failed: %w", err)
 			}
 
-			threads, err := client.FetchThreadReplies(count)
+			threads, err := a.client.FetchThreadReplies(count)
 			if err != nil {
 				return fmt.Errorf("fetch threads failed: %w", err)
 			}
@@ -101,7 +101,7 @@ func fetchThreadsCmd(client *slackclient.Client, db *store.Store) *cobra.Command
 	return cmd
 }
 
-func fetchConversationCmd(client *slackclient.Client, db *store.Store) *cobra.Command {
+func fetchConversationCmd(a *app) *cobra.Command {
 	var output string
 
 	cmd := &cobra.Command{
@@ -109,11 +109,11 @@ func fetchConversationCmd(client *slackclient.Client, db *store.Store) *cobra.Co
 		Short: "Fetch a conversation by permalink",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if _, err := client.AuthTest(); err != nil {
+			if _, err := a.client.AuthTest(); err != nil {
 				return fmt.Errorf("auth test failed: %w", err)
 			}
 
-			conv, err := client.FetchConversation(args[0])
+			conv, err := a.client.FetchConversation(args[0])
 			if err != nil {
 				return fmt.Errorf("fetch conversation failed: %w", err)
 			}
@@ -147,11 +147,11 @@ func fetchConversationCmd(client *slackclient.Client, db *store.Store) *cobra.Co
 }
 
 // runFetch executes the core fetch-and-save pipeline.
-func runFetch(client *slackclient.Client, db *store.Store) error {
-	expired, _ := db.IsUsersCacheExpired(72 * time.Hour)
+func runFetch(a *app) error {
+	expired, _ := a.db.IsUsersCacheExpired(72 * time.Hour)
 	if expired {
 		fmt.Println("fetching users...")
-		slackUsers, err := client.FetchUsers()
+		slackUsers, err := a.client.FetchUsers()
 		if err != nil {
 			return fmt.Errorf("fetch users failed: %w", err)
 		}
@@ -159,20 +159,20 @@ func runFetch(client *slackclient.Client, db *store.Store) error {
 		for i, u := range slackUsers {
 			storeUsers[i] = store.User{ID: u.ID, Name: u.Name, IsBot: u.IsBot}
 		}
-		if err := db.ReplaceUsers(storeUsers); err != nil {
+		if err := a.db.ReplaceUsers(storeUsers); err != nil {
 			return fmt.Errorf("save users failed: %w", err)
 		}
 		fmt.Printf("cached %d users\n\n", len(storeUsers))
 	}
 
 	fmt.Println("fetching mentions...")
-	mentions, err := client.FetchMentions(20)
+	mentions, err := a.client.FetchMentions(20)
 	if err != nil {
 		return fmt.Errorf("fetch mentions failed: %w", err)
 	}
 
 	fmt.Println("fetching threads...")
-	threads, err := client.FetchThreadReplies(20)
+	threads, err := a.client.FetchThreadReplies(20)
 	if err != nil {
 		return fmt.Errorf("fetch threads failed: %w", err)
 	}
@@ -188,7 +188,7 @@ func runFetch(client *slackclient.Client, db *store.Store) error {
 	}
 
 	fmt.Println("fetching conversations...")
-	convs, err := client.FetchConversations(messages)
+	convs, err := a.client.FetchConversations(messages)
 	if err != nil {
 		return fmt.Errorf("fetch conversations failed: %w", err)
 	}
@@ -203,7 +203,7 @@ func runFetch(client *slackclient.Client, db *store.Store) error {
 		if len(conv.Messages) > 0 {
 			threadTS = conv.Messages[0].Timestamp
 		}
-		if err := db.SaveConversation(conv.ChannelID, conv.ChannelName, threadTS, msgs); err != nil {
+		if err := a.db.SaveConversation(conv.ChannelID, conv.ChannelName, threadTS, msgs); err != nil {
 			fmt.Fprintf(os.Stderr, "save error: %v\n", err)
 		}
 	}
@@ -212,23 +212,23 @@ func runFetch(client *slackclient.Client, db *store.Store) error {
 	return nil
 }
 
-func fetchCmd(client *slackclient.Client, db *store.Store) *cobra.Command {
+func fetchCmd(a *app) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "fetch",
 		Short: "Fetch and save Slack conversations",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			user, err := client.AuthTest()
+			user, err := a.client.AuthTest()
 			if err != nil {
 				return fmt.Errorf("auth test failed: %w", err)
 			}
 			fmt.Printf("authenticated as: %s\n\n", user)
-			return runFetch(client, db)
+			return runFetch(a)
 		},
 	}
 
-	cmd.AddCommand(fetchMentionsCmd(client, db))
-	cmd.AddCommand(fetchThreadsCmd(client, db))
-	cmd.AddCommand(fetchConversationCmd(client, db))
+	cmd.AddCommand(fetchMentionsCmd(a))
+	cmd.AddCommand(fetchThreadsCmd(a))
+	cmd.AddCommand(fetchConversationCmd(a))
 
 	return cmd
 }

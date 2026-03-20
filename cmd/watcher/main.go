@@ -11,40 +11,57 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// app holds initialized dependencies, populated by requireConfig.
+type app struct {
+	client *slackclient.Client
+	db     *store.Store
+	cfg    *config.Config
+}
+
 func main() {
-	// load config
-	cfg, err := config.Load()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "config error: %v\n", err)
-		os.Exit(1)
-	}
-
-	// create slack client
-	client := slackclient.NewClient(cfg.SlackUserToken)
-
-	dir, err := config.Dir()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "config dir error: %v\n", err)
-		os.Exit(1)
-	}
-
-	db, err := store.New(filepath.Join(dir, "watcher.db"))
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "store error: %v\n", err)
-		os.Exit(1)
-	}
-	defer db.Close()
+	a := &app{}
 
 	root := &cobra.Command{
 		Use:   "watcher",
 		Short: "Stop context-switching. Your Slack conversations, triaged and waiting.",
 	}
 
-	root.AddCommand(fetchCmd(client, db))
-	root.AddCommand(startCmd(client, db, cfg))
+	// configコマンドはconfig.Load()不要
+	root.AddCommand(configCmd())
+
+	// fetch/startはconfigが必要
+	requireConfig := func(cmd *cobra.Command, args []string) error {
+		cfg, err := config.Load()
+		if err != nil {
+			return fmt.Errorf("config error: %w\nRun 'watcher config init' to create config file", err)
+		}
+		a.cfg = cfg
+		a.client = slackclient.NewClient(cfg.SlackUserToken)
+		dir, err := config.Dir()
+		if err != nil {
+			return err
+		}
+		a.db, err = store.New(filepath.Join(dir, "watcher.db"))
+		if err != nil {
+			return err
+		}
+		return nil
+	}
+
+	fetchCommand := fetchCmd(a)
+	fetchCommand.PersistentPreRunE = requireConfig
+
+	startCommand := startCmd(a)
+	startCommand.PreRunE = requireConfig
+
+	root.AddCommand(fetchCommand)
+	root.AddCommand(startCommand)
 
 	if err := root.Execute(); err != nil {
-		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
+	}
+
+	if a.db != nil {
+		a.db.Close()
 	}
 }
